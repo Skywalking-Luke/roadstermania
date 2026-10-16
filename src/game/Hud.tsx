@@ -1,6 +1,20 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { unlockAudio } from "@/game/audio";
-import { formatTime, getBoard, getSnap, pressFlap, releaseFlap, send, subscribe } from "@/game/store";
+import {
+  formatTime,
+  getBoard,
+  getLastName,
+  getScores,
+  getSnap,
+  isRunSaved,
+  pressFlap,
+  qualifies,
+  releaseFlap,
+  send,
+  submitScore,
+  subscribe,
+  type Snap,
+} from "@/game/store";
 
 export function Frame({ children }: { children: ReactNode }) {
   const snap = useSyncExternalStore(subscribe, getSnap, getSnap);
@@ -46,6 +60,10 @@ function Overlay() {
       {snap.phase === "title" ? <Title /> : null}
       {snap.phase === "run" && !snap.paused ? (
         <>
+          <div className="score-hud" aria-label="Score">
+            <strong>{snap.score.toLocaleString()}</strong>
+            {snap.combo > 1 ? <span className="combo">COMBO x{snap.combo}</span> : null}
+          </div>
           <p className="live-tip" role="status" aria-live="polite">
             {snap.hint}
           </p>
@@ -97,8 +115,9 @@ function Title() {
           <kbd>HOLD</kbd> climb or stick to the ceiling
         </li>
         <li>
-          <kbd>LET GO</kbd> settle back to the hover
+          <kbd>LET GO</kbd> fall back to the road
         </li>
+        <li className="howto-score">Roll over cars for +100. Chain rolls before landing for up to x5.</li>
       </ul>
       <button
         type="button"
@@ -239,7 +258,9 @@ function Crash() {
     <div className="result">
       <p className="kicker">CRASH</p>
       <h2>{snap.reason || "Down"}</h2>
-      <p className="result-help">Hold climbs. A tap rolls. Let go to hover.</p>
+      <Breakdown snap={snap} />
+      <SaveScore snap={snap} />
+      <p className="result-help">Hold climbs. A tap rolls. Let go and you drop.</p>
       <div className="result-actions">
         <button type="button" onClick={() => send({ t: "again" })}>
           RETRY
@@ -258,9 +279,11 @@ function Clear() {
     <div className="result">
       <p className="kicker">LAP CLEAR</p>
       <h2>LEVEL {String(snap.level).padStart(2, "0")}</h2>
+      <Breakdown snap={snap} />
+      <SaveScore snap={snap} clear />
       <div className="result-actions">
         <button type="button" onClick={() => send({ t: "next" })}>
-          NEXT
+          NEXT · FASTER
         </button>
         <button type="button" onClick={() => send({ t: "title" })}>
           TITLE
@@ -270,25 +293,98 @@ function Clear() {
   );
 }
 
+function Breakdown({ snap }: { snap: Snap }) {
+  const b = snap.breakdown;
+  const rows: [string, number][] = [
+    ["DISTANCE", b.distance],
+    ["CARS PASSED", b.passes],
+    [`ROLLS · ${b.rolls} OVER CARS${b.bestCombo > 1 ? ` · x${b.bestCombo}` : ""}`, b.rollPts],
+    ["CEILING", b.ceiling],
+  ];
+  if (b.clear) rows.push([`LEVEL ${snap.level} CLEAR`, b.clear]);
+  if (snap.carried) rows.unshift(["EARLIER LEVELS", snap.carried]);
+  return (
+    <div className="breakdown" aria-label="Score breakdown">
+      {rows.map(([k, v]) => (
+        <p key={k}>
+          <span>{k}</span>
+          <span>{v.toLocaleString()}</span>
+        </p>
+      ))}
+      <p className="total">
+        <span>TOTAL</span>
+        <span>{snap.score.toLocaleString()}</span>
+      </p>
+    </div>
+  );
+}
+
+function SaveScore({ snap, clear }: { snap: Snap; clear?: boolean }) {
+  const [name, setName] = useState(getLastName());
+  const [rank, setRank] = useState(0);
+  if (rank) return <p className="saved">SAVED · #{rank} ON THIS DEVICE</p>;
+  if (isRunSaved(snap.runId) || !qualifies(snap.score)) return null;
+  return (
+    <form
+      className="name-entry"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const r = submitScore(snap.runId, name, snap.score, snap.level, snap.breakdown.rolls);
+        setRank(r || -1);
+      }}
+    >
+      <label htmlFor="initials">{clear ? "BANK RUN" : "TOP 10!"} INITIALS</label>
+      <input
+        id="initials"
+        value={name}
+        maxLength={3}
+        autoComplete="off"
+        autoCapitalize="characters"
+        spellCheck={false}
+        onChange={(e) => setName(e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 3))}
+        placeholder="AAA"
+      />
+      <button type="submit">SAVE</button>
+    </form>
+  );
+}
+
 function Board({ onClose }: { onClose: () => void }) {
-  const rows = getBoard();
+  const rows = getScores();
+  const times = getBoard();
   return (
     <div className="sheet" role="dialog" aria-label="Leaderboard">
       <div className="sheet-head">
-        <h2>LEADERBOARD</h2>
+        <h2>TOP 10 · THIS DEVICE</h2>
         <button type="button" aria-label="Close leaderboard" onClick={onClose}>
           ×
         </button>
       </div>
-      {rows.length === 0 ? <p className="sheet-empty">No runs yet. Set the first time.</p> : null}
-      <ol>
-        {rows.map((row) => (
-          <li key={row.level}>
-            <span>LV {String(row.level).padStart(2, "0")}</span>
-            <span>{formatTime(row.ms / 1000)}</span>
+      {rows.length === 0 ? <p className="sheet-empty">No scores yet. Finish a run to set the first one.</p> : null}
+      <ol className="scores">
+        {rows.map((row, i) => (
+          <li key={`${row.at}-${i}`}>
+            <span>
+              {String(i + 1).padStart(2, "0")} {row.name}
+            </span>
+            <span>LV {row.level}</span>
+            <strong>{row.score.toLocaleString()}</strong>
           </li>
         ))}
       </ol>
+      {times.length ? (
+        <>
+          <h3>BEST LAP TIMES</h3>
+          <ol>
+            {times.map((row) => (
+              <li key={row.level}>
+                <span>LV {String(row.level).padStart(2, "0")}</span>
+                <span>{formatTime(row.ms / 1000)}</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : null}
     </div>
   );
 }

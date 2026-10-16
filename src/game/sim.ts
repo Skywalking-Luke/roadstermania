@@ -1,5 +1,7 @@
 import {
   GRAV,
+  GRAV_FALL,
+  TAP_V,
   GROUND,
   HOVER,
   MAX_FALL,
@@ -25,6 +27,7 @@ export type Player = {
   airAngle: number;
   grounded: boolean;
   stuck: boolean;
+  airRoll: boolean;
 };
 
 export type Popup = { x: number; y: number; life: number; text: string };
@@ -44,7 +47,40 @@ export type Sim = {
   player: Player;
   course: Course;
   popups: Popup[];
+  score: Score;
 };
+
+/** Points for the current level attempt (carried totals live in runGame). */
+export type Score = {
+  distance: number;
+  passes: number;
+  rolls: number;
+  rollPts: number;
+  ceiling: number;
+  clear: number;
+  combo: number;
+  bestCombo: number;
+  ceilT: number;
+  lastRoll: number;
+};
+
+export const PTS = {
+  perMetre: 1, // 1 metre = 10 px of road
+  pass: 25, // each jam car cleared
+  roll: 100, // rolling over a car, times combo
+  fullRoll: 50, // finishing a 360 in the air
+  ceilingPerSec: 20,
+  clearPerLevel: 500,
+  maxCombo: 5,
+};
+
+export function newScore(): Score {
+  return { distance: 0, passes: 0, rolls: 0, rollPts: 0, ceiling: 0, clear: 0, combo: 0, bestCombo: 0, ceilT: 0, lastRoll: -9 };
+}
+
+export function scoreTotal(s: Score) {
+  return Math.floor(s.distance) + s.passes + s.rollPts + Math.floor(s.ceiling) + s.clear;
+}
 
 export type FlapInput = { down: boolean; edge: boolean };
 
@@ -72,6 +108,7 @@ export function createSim(level: number): Sim {
     player: spawn(),
     course: buildLevel(level),
     popups: [],
+    score: newScore(),
   };
   sim.hint = hintFor(sim);
   sim.node = nodeFor(sim);
@@ -101,6 +138,7 @@ function load(sim: Sim, level: number) {
   sim.lock = 0;
   sim.player = spawn();
   sim.popups = [];
+  sim.score = newScore();
   sim.hint = hintFor(sim);
   sim.node = nodeFor(sim);
 }
@@ -117,6 +155,7 @@ function spawn(): Player {
     airAngle: 0,
     grounded: true,
     stuck: false,
+    airRoll: false,
   };
 }
 
@@ -146,13 +185,13 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   if (input.edge && !p.stuck) {
     p.spin = Math.min(16, (p.spin > 1.5 ? p.spin : 0) + 13.5);
     if (p.roll === 0) p.roll = 0.04;
-    p.vy -= 78;
+    p.airRoll = true;
+    p.vy = Math.min(p.vy - 78, TAP_V);
     p.grounded = false;
     flap = true;
     sim.shake = Math.max(sim.shake, 0.2);
   }
 
-  const hoverY = GROUND - PH - HOVER;
 
   if (p.stuck && input.down) {
     const ceil = sim.course.ceilings.find((c) => p.x + PW > c.x0 && p.x < c.x1 && p.y <= c.y + 2);
@@ -169,14 +208,7 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
     }
   } else {
     const lift = 0.55 + 0.45 * Math.max(0, Math.cos(p.roll));
-    let ay = GRAV;
-    if (input.down) {
-      ay += THRUST * lift;
-    } else {
-      const err = hoverY - p.y;
-      const hold = Math.max(-360, Math.min(420, err * 18 - p.vy * 6));
-      ay += -GRAV * lift + hold * lift;
-    }
+    const ay = input.down ? GRAV + THRUST * lift : GRAV_FALL;
     p.vy = Math.max(-220, Math.min(MAX_FALL, p.vy + ay * dt));
     p.y += p.vy * dt;
     p.x += speed * dt;
@@ -191,10 +223,15 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
     if (p.vy > 0) p.vy *= 0.2;
     if (!badLand && !input.down) p.vy = Math.min(p.vy, 0);
   }
-  const nearHover = Math.abs(p.y - hoverY) < 5 && Math.abs(p.vy) < 22 && Math.cos(p.roll) > 0.8;
+  const nearHover = p.y + PH >= GROUND - 0.5 && p.vy >= 0 && Math.cos(p.roll) > 0.8;
   if (!p.stuck && !input.down && nearHover) {
     if (!p.grounded) landed = true;
     p.grounded = true;
+    p.airRoll = false;
+    if (landed && sim.score.combo > 1) {
+      sim.popups.push({ x: p.x, y: p.y - 10, life: 0.9, text: `COMBO x${sim.score.combo}` });
+    }
+    sim.score.combo = 0;
   } else if (!p.stuck) {
     p.grounded = false;
   }
@@ -248,17 +285,36 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
     p.angle += (target - p.angle) * (1 - Math.exp(-8 * dt));
   }
 
+  const sc = sim.score;
+  sc.distance += (speed * dt) / 10 * PTS.perMetre;
+  if (p.stuck) {
+    sc.ceiling += PTS.ceilingPerSec * dt;
+    sc.ceilT += dt;
+  }
+  if (completed) {
+    sc.rollPts += PTS.fullRoll;
+    sim.popups.push({ x: p.x, y: p.y - 16, life: 0.7, text: `+${PTS.fullRoll}` });
+  }
+
   let flip = false;
   for (const car of sim.course.cars) {
     if (!car.jam || car.scored) continue;
-    const edge = car.x + car.w;
+    const edge = car.x + car.w / 2 - PW / 2; // car centre passes under the Roadster centre
     if (p.prevX < edge && p.x >= edge) {
       car.scored = true;
-      if (p.y + PH <= car.y + 2 && (p.roll > 0.8 || completed)) {
+      if (p.y + PH <= car.y + 2 && (p.roll > 0.8 || completed || p.airRoll)) {
         sim.flips += 1;
         flip = true;
-        sim.popups.push({ x: p.x, y: p.y - 8, life: 0.85, text: "ROLL" });
+        sc.combo = Math.min(PTS.maxCombo, sc.combo + 1);
+        sc.bestCombo = Math.max(sc.bestCombo, sc.combo);
+        const pts = PTS.roll * sc.combo;
+        sc.rolls += 1;
+        sc.rollPts += pts;
+        sim.popups.push({ x: p.x, y: p.y - 8, life: 0.95, text: sc.combo > 1 ? `ROLL +${pts} x${sc.combo}` : `ROLL +${pts}` });
         sim.shake = Math.max(sim.shake, 0.8);
+      } else {
+        sc.passes += PTS.pass;
+        sim.popups.push({ x: p.x, y: p.y - 8, life: 0.6, text: `+${PTS.pass}` });
       }
     }
   }
@@ -296,6 +352,7 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   if (!crash && p.x >= sim.course.finish) {
     clear = true;
     sim.phase = "clear";
+    sim.score.clear = PTS.clearPerLevel * sim.level;
     sim.reason = "";
     sim.lock = 0.35;
     sim.flash = 0.4;
@@ -328,14 +385,14 @@ function hintFor(sim: Sim) {
         const under = tun.cars.some((c) => c.x < p.x + PW + 28 && c.x + c.w > p.x - 8 && c.y > p.y + 4);
         return under ? "Stay on the ceiling. The jam is under you." : "Gap below. Let go to drop.";
       }
-      if (!tun.switchUp) return "Hold the ceiling, or hover along the floor";
+      if (!tun.switchUp) return "Hold the ceiling, or drive the floor";
       const mid = tun.x + tun.len * 0.48;
       return p.x < mid ? "Jam on the floor. Hold the ceiling." : "Jam up top. Let go and drop.";
     }
   }
   for (const toll of course.tolls) {
     if (p.x > toll.x - toll.roofLead && p.x < toll.x + 16) {
-      return toll.high ? "High gap. Hold to climb through." : "Low gap. Let go and hover through.";
+      return toll.high ? "High gap. Hold to climb through." : "Low gap. Let go and drop through.";
     }
   }
   if (p.stuck) return "Stuck. Let go to drop.";
@@ -350,7 +407,7 @@ function hintFor(sim: Sim) {
       text = msg;
     }
   };
-  for (const arm of course.arms) consider(arm.x, arm.red ? "Red light. Hold to hop it." : "Green light. Stay on the hover.");
+  for (const arm of course.arms) consider(arm.x, arm.red ? "Red light. Hold to hop it." : "Green light. Stay low.");
   const jam = course.cars.find((c) => c.jam && c.x + c.w > p.x);
   if (jam) consider(jam.x, "Tap once to roll over the cars");
   consider(course.finish, "Landing arch");

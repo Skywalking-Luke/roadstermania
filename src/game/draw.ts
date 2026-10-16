@@ -2,7 +2,9 @@ import { GROUND, PH, PW, ROOF, VH, VW, WALL, type CarObs } from "@/game/course";
 import type { Sim } from "@/game/sim";
 import type { Sprites } from "@/game/sprites";
 
-type Part = { x: number; y: number; vx: number; vy: number; life: number; color: string };
+type Part = { x: number; y: number; vx: number; vy: number; life: number; color: string; gas?: boolean; max?: number };
+
+const GAS = ["#ffffff", "#e8eef4", "#cfd9e3", "#b9c6d2"];
 
 const SKY = ["#010203", "#05060a", "#12080c"];
 
@@ -16,6 +18,36 @@ export function createRenderer() {
       const a = Math.random() * Math.PI * 2;
       const s = sp * (0.4 + Math.random());
       parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.35 + Math.random() * 0.3, color });
+    }
+  }
+
+  /** Cold-gas vapour from the front and back wheel nozzles, pushed downward. */
+  function vent(sim: Sim, strength: number) {
+    const p = sim.player;
+    if (p.stuck) return;
+    const cx = p.x + PW / 2;
+    const cy = p.y + PH / 2;
+    const c = Math.cos(p.angle);
+    const sn = Math.sin(p.angle);
+    const flip = Math.cos(p.roll) < 0 ? -1 : 1;
+    for (const wx of [-11, 10]) {
+      const ly = (PH / 2) * flip;
+      const x = cx + wx * c - ly * sn;
+      const y = cy + wx * sn + ly * c;
+      const n = Math.max(1, Math.round(strength));
+      for (let i = 0; i < n; i++) {
+        const life = 0.3 + Math.random() * 0.35;
+        parts.push({
+          x: x + (Math.random() - 0.5) * 2,
+          y,
+          vx: (Math.random() - 0.5) * 22 - 18,
+          vy: (60 + Math.random() * 50) * flip,
+          life,
+          max: life,
+          color: GAS[Math.floor(Math.random() * GAS.length)],
+          gas: true,
+        });
+      }
     }
   }
 
@@ -188,10 +220,11 @@ export function createRenderer() {
 
       const p = sim.player;
       if (fx.flap) {
-        flame = 0.16;
-        burst(p.x - 4, p.y + PH * 0.6, "#ffd0c2", 6, 36);
+        flame = 0.18;
+        vent(sim, 5);
       }
-      if (fx.flip) burst(p.x + PW * 0.5, p.y, "#ff6a48", 10, 42);
+      if (sim.phase === "run" && !sim.paused && (flame > 0 || p.vy < -18)) vent(sim, flame > 0.1 ? 2 : 1);
+      if (fx.flip) burst(p.x + PW * 0.5, p.y, "#dfe8f0", 10, 42);
       if (fx.crash) burst(p.x + PW * 0.5, p.y + PH * 0.5, "#ff3b30", 16, 70);
       if (fx.landed && !wasGround) burst(p.x + 6, GROUND, "#a39e93", 5, 24);
       wasGround = p.grounded || p.stuck;
@@ -202,9 +235,26 @@ export function createRenderer() {
         part.life -= 1 / 60;
         part.x += part.vx / 60;
         part.y += part.vy / 60;
-        part.vy += 80 / 60;
+        if (part.gas) {
+          part.vx *= 0.93;
+          part.vy *= 0.9;
+          if (part.y > GROUND - 1) {
+            part.y = GROUND - 1;
+            part.vy = 0;
+            part.vx -= 1.5;
+          }
+        } else part.vy += 80 / 60;
         if (part.life <= 0) {
           parts.splice(i, 1);
+          continue;
+        }
+        if (part.gas) {
+          const t = 1 - part.life / (part.max ?? 0.5);
+          const sz = 1 + Math.round(t * 5);
+          ctx.globalAlpha = Math.max(0, 0.75 * (1 - t));
+          ctx.fillStyle = part.color;
+          ctx.fillRect(Math.round(part.x - cam - sz / 2), Math.round(part.y - sz / 2), sz, sz);
+          ctx.globalAlpha = 1;
           continue;
         }
         ctx.globalAlpha = Math.max(0, part.life * 2);
@@ -275,10 +325,20 @@ function drawHero(
   const top = PH / 2 - dh;
   const burning = flame > 0 || p.vy < -18 || p.spin > 2;
   if (burning && !p.stuck) {
-    ctx.fillStyle = p.vy < -40 ? "#fff4ee" : "#ff5a3c";
-    ctx.fillRect(-dw / 2 - 7, top + 4, 7, 3);
-    ctx.fillStyle = "#ff2a1c";
-    ctx.fillRect(-dw / 2 - 12, top + 5, 5, 2);
+    // Cold-gas jets straight down from the front and back wheel nozzles.
+    const len = 4 + Math.round(Math.min(1, flame * 6 + Math.max(0, -p.vy) / 120) * 6);
+    for (const wx of [-12, 9]) {
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(wx, top + dh, 3, 2);
+      ctx.fillStyle = "#dce6ef";
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(wx - 1, top + dh + 2, 5, Math.ceil(len / 2));
+      ctx.fillStyle = "#b9c6d2";
+      ctx.globalAlpha = 0.25;
+      ctx.fillRect(wx - 2, top + dh + 2 + Math.ceil(len / 2), 7, Math.ceil(len / 2));
+      ctx.globalAlpha = 1;
+    }
   }
   if (sprites.hero) {
     ctx.drawImage(sprites.hero, -dw / 2, top, dw, dh);

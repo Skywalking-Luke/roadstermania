@@ -10,7 +10,20 @@ export const SKY = 4;
 export const FLAP_V = -248;
 export const GRAV = 520;
 export const MAX_FALL = 240;
-export const HOVER = 8;
+export const HOVER = 0; // no hover: the car rests on the road
+export const GRAV_FALL = 400; // gravity when the button is released
+export const TAP_V = -205; // upward kick from a tap
+
+/** Base speed grows 11% per level, capped so it stays playable. */
+export function levelSpeed(level: number) {
+  return Math.min(165, Math.round(78 * Math.pow(1.11, Math.max(0, level - 1))));
+}
+
+/** Each level's run is 22% longer than the previous one (capped at 10x level 1). */
+export function levelLength(level: number) {
+  return Math.round(BASE_LEN * Math.min(10, Math.pow(1.22, Math.max(0, level - 1))));
+}
+const BASE_LEN = 1600;
 export const THRUST = -900;
 
 export type MarkerId = "light" | "jam" | "toll" | "tunnel" | "arch";
@@ -69,7 +82,7 @@ function carSolid(c: CarObs, kind: Solid["kind"]): Solid {
 
 export function buildLevel(level: number): Course {
   const L = Math.max(1, Math.floor(level));
-  const speed = Math.min(136, 78 + (L - 1) * 7);
+  const speed = levelSpeed(L);
   const slack = Math.max(4, 18 - (L - 1) * 2);
   const gapSlack = Math.max(10, 28 - (L - 1) * 2);
   const barH = Math.min(26, 16 + Math.floor((L - 1) * 1.4));
@@ -169,6 +182,32 @@ export function buildLevel(level: number): Course {
     arms.push({ x, barH: Math.min(32, barH + 4), red: true });
     x += pad(0.9);
   }
+
+  // Stretch the run to the target length with extra traffic and lights.
+  const target = levelLength(L) - 24;
+  let seg = 0;
+  const nSeg = Math.min(4, 2 + Math.floor(L / 3));
+  for (;;) {
+    const jamFits = x + nSeg * spacing + pad(1.1) <= target;
+    const armFits = x + pad(1.1) <= target;
+    if (!armFits) break;
+    if (seg % 2 === 0 && jamFits) {
+      markers.push({ id: "jam", x });
+      const n = nSeg;
+      for (let i = 0; i < n; i++) {
+        const spec = L >= 3 && i === n - 1 ? SPECS[3] : SPECS[(i + seg) % 3];
+        cars.push({ x, y: GROUND - spec.h, w: spec.w, h: spec.h, frame: spec.frame, jam: true, scored: false });
+        x += spacing;
+      }
+      x += pad(1.1);
+    } else {
+      arms.push({ x, barH, red: true });
+      markers.push({ id: "light", x });
+      x += pad(1.1);
+    }
+    seg += 1;
+  }
+  x = Math.max(x, target);
 
   const finish = x + 24;
   markers.push({ id: "arch", x: finish });

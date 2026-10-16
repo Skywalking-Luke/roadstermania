@@ -19,7 +19,15 @@ export type Snap = {
   downforce: number;
   roll: number;
   thrust: boolean;
+  score: number;
+  carried: number;
+  combo: number;
+  breakdown: Breakdown;
+  runId: number;
 };
+
+export type Breakdown = { distance: number; passes: number; rolls: number; rollPts: number; ceiling: number; clear: number; bestCombo: number };
+const emptyBreakdown: Breakdown = { distance: 0, passes: 0, rolls: 0, rollPts: 0, ceiling: 0, clear: 0, bestCombo: 0 };
 
 export const initialSnap: Snap = {
   phase: "title",
@@ -40,9 +48,17 @@ export const initialSnap: Snap = {
   downforce: 50,
   roll: 0,
   thrust: false,
+  score: 0,
+  carried: 0,
+  combo: 0,
+  breakdown: emptyBreakdown,
+  runId: 0,
 };
 
-type Save = { v: 2; best: Record<string, number>; unlocked: number };
+export type ScoreRow = { name: string; score: number; level: number; rolls: number; at: number };
+
+// v2 shape kept; `scores` and `name` are optional additions so older saves load unchanged.
+type Save = { v: 2; best: Record<string, number>; unlocked: number; scores?: ScoreRow[]; name?: string };
 
 const KEY = "reveal-run-v2";
 
@@ -60,6 +76,20 @@ function readSave(): Save {
       v: 2,
       best: parsed.best,
       unlocked: Math.max(1, parsed.unlocked ?? 1),
+      scores: Array.isArray(parsed.scores)
+        ? parsed.scores
+            .filter((r) => r && typeof r.score === "number" && Number.isFinite(r.score))
+            .map((r) => ({
+              name: String(r.name ?? "???").slice(0, 3).toUpperCase(),
+              score: Math.floor(r.score),
+              level: Number(r.level) || 1,
+              rolls: Number(r.rolls) || 0,
+              at: Number(r.at) || 0,
+            }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10)
+        : [],
+      name: typeof parsed.name === "string" ? parsed.name.slice(0, 3) : undefined,
     };
   } catch {
     return { v: 2, best: {}, unlocked: 1 };
@@ -82,6 +112,40 @@ export function getBoard() {
     .map(([level, ms]) => ({ level: Number(level), ms }))
     .filter((row) => Number.isFinite(row.level))
     .sort((a, b) => a.level - b.level);
+}
+
+export function getScores(): ScoreRow[] {
+  return save.scores ?? [];
+}
+
+export function getLastName() {
+  return save.name ?? "";
+}
+
+/** Would this score make the top 10 on this device? */
+export function qualifies(score: number) {
+  if (score <= 0) return false;
+  const rows = getScores();
+  return rows.length < 10 || score > rows[rows.length - 1].score;
+}
+
+const savedRuns = new Set<number>();
+
+export function isRunSaved(runId: number) {
+  return savedRuns.has(runId);
+}
+
+/** Saves a score; returns its 1-based rank, or 0 if it did not place. */
+export function submitScore(runId: number, rawName: string, score: number, level: number, rolls: number) {
+  if (savedRuns.has(runId) || !qualifies(score)) return 0;
+  savedRuns.add(runId);
+  const name = (rawName.replace(/[^a-z0-9]/gi, "").toUpperCase() || "AAA").slice(0, 3);
+  const row: ScoreRow = { name, score: Math.floor(score), level, rolls, at: Date.now() };
+  const rows = [...getScores(), row].sort((a, b) => b.score - a.score || a.at - b.at).slice(0, 10);
+  save.scores = rows;
+  save.name = name;
+  writeSave();
+  return rows.indexOf(row) + 1;
 }
 
 export function getUnlocked() {

@@ -1,7 +1,7 @@
-import { playClear, playCrash, playFlap, playFlip, resumeAudio, setMuted, updateEngine } from "@/game/audio";
+import { playClear, playCrash, playFlap, playFlip, resumeAudio, setHoldHiss, setMuted, unlockAudio, updateEngine } from "@/game/audio";
 import { createRenderer } from "@/game/draw";
 import { GROUND, PH, VH, VW } from "@/game/course";
-import { begin, createSim, previewLevel, stepSim, type Sim } from "@/game/sim";
+import { begin, createSim, previewLevel, scoreTotal, stepSim, type Sim } from "@/game/sim";
 import { loadSprites } from "@/game/sprites";
 import {
   drain,
@@ -11,6 +11,8 @@ import {
   getTestKeys,
   getUnlocked,
   isMuted,
+  isRunSaved,
+  qualifies,
   pressFlap,
   publish,
   recordClear,
@@ -26,6 +28,9 @@ const STEP = 1 / 60;
 function flapCode(code: string) {
   return code === "Space" || code === "KeyW" || code === "ArrowUp";
 }
+
+let carried = 0;
+let runId = 1;
 
 function toSnap(sim: Sim): Snap {
   const span = Math.max(1, sim.course.finish - 48);
@@ -50,6 +55,19 @@ function toSnap(sim: Sim): Snap {
       : Math.max(6, Math.round(Math.max(0, Math.cos(sim.player.roll)) * (90 - Math.min(72, Math.max(0, GROUND - PH - sim.player.y))))),
     roll: sim.player.angle,
     thrust: sim.player.vy < -18 || sim.player.spin > 2,
+    score: carried + scoreTotal(sim.score),
+    carried,
+    combo: sim.score.combo,
+    breakdown: {
+      distance: Math.floor(sim.score.distance),
+      passes: sim.score.passes,
+      rolls: sim.score.rolls,
+      rollPts: sim.score.rollPts,
+      ceiling: Math.floor(sim.score.ceiling),
+      clear: sim.score.clear,
+      bestCombo: sim.score.bestCombo,
+    },
+    runId,
   };
 }
 
@@ -72,7 +90,13 @@ export function runGame(canvas: HTMLCanvasElement) {
   let recorded = false;
   let appliedMute = isMuted();
 
+  const newRun = () => {
+    carried = 0;
+    runId += 1;
+  };
+
   const retry = () => {
+    newRun();
     begin(sim, sim.level);
     renderer.reset();
     recorded = false;
@@ -81,6 +105,7 @@ export function runGame(canvas: HTMLCanvasElement) {
 
   const next = () => {
     if (sim.phase !== "clear") return;
+    carried += scoreTotal(sim.score);
     begin(sim, sim.level + 1);
     renderer.reset();
     recorded = false;
@@ -88,6 +113,7 @@ export function runGame(canvas: HTMLCanvasElement) {
   };
 
   const toTitle = () => {
+    newRun();
     sim.phase = "title";
     previewLevel(sim, sim.level);
     renderer.reset();
@@ -98,6 +124,7 @@ export function runGame(canvas: HTMLCanvasElement) {
   const commands = () => {
     for (const cmd of drain()) {
       if (cmd.t === "start" && sim.phase === "title") {
+        newRun();
         begin(sim, sim.level);
         renderer.reset();
         recorded = false;
@@ -129,6 +156,7 @@ export function runGame(canvas: HTMLCanvasElement) {
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (getTestKeys()) return;
+    if ((e.target as HTMLElement | null)?.closest?.("input")) return;
     if (e.code === "Escape" && sim.phase === "run") {
       e.preventDefault();
       sim.paused = !sim.paused;
@@ -137,6 +165,7 @@ export function runGame(canvas: HTMLCanvasElement) {
     }
     if ((e.code === "Enter" || e.code === "Space") && sim.phase === "title" && !e.repeat) {
       e.preventDefault();
+      newRun();
       begin(sim, sim.level);
       renderer.reset();
       recorded = false;
@@ -152,6 +181,7 @@ export function runGame(canvas: HTMLCanvasElement) {
       setMuted(appliedMute);
       return;
     }
+    unlockAudio();
     if (sim.paused) return;
     if (!flapCode(e.code) || e.repeat || sim.phase !== "run" || sim.paused) return;
     e.preventDefault();
@@ -159,13 +189,16 @@ export function runGame(canvas: HTMLCanvasElement) {
   };
   const onKeyUp = (e: KeyboardEvent) => {
     if (getTestKeys()) return;
+    if ((e.target as HTMLElement | null)?.closest?.("input")) return;
     if (flapCode(e.code)) releaseFlap();
   };
   const onPointerDown = (e: PointerEvent) => {
+    unlockAudio();
     const target = e.target as HTMLElement | null;
-    if (target?.closest("button")) return;
+    if (target?.closest("button, input, form, .sheet")) return;
+    const pending = qualifies(carried + scoreTotal(sim.score)) && !isRunSaved(runId);
     if (sim.phase === "run" && !sim.paused) pressFlap();
-    else if (sim.phase === "crash" && sim.lock <= 0) retry();
+    else if (sim.phase === "crash" && sim.lock <= 0 && !pending) retry();
     else if (sim.phase === "clear" && sim.lock <= 0) next();
   };
   const onPointerUp = () => {
@@ -192,6 +225,7 @@ export function runGame(canvas: HTMLCanvasElement) {
     getLevel: () => sim.level,
     getStuck: () => sim.player.stuck,
     getFlips: () => sim.flips,
+    getScore: () => carried + scoreTotal(sim.score),
     setKeys: (codes: string[]) => setTestKeys(codes),
     setPose: (pose: { x?: number; y?: number; vy?: number }) => {
       if (sim.phase === "title") begin(sim, sim.level);
@@ -262,6 +296,7 @@ export function runGame(canvas: HTMLCanvasElement) {
       setMuted(appliedMute);
     }
     updateEngine(sim.phase === "run", input.down && !sim.player.stuck);
+    setHoldHiss(sim.phase === "run" && !sim.paused && input.down && !sim.player.stuck && sim.player.vy < 0);
 
     renderer.draw(ctx, sim, sprites, clock, fx, reduce);
     publish(toSnap(sim));
@@ -297,6 +332,7 @@ declare global {
       getLevel: () => number;
       getStuck: () => boolean;
       getFlips: () => number;
+      getScore: () => number;
       setKeys: (codes: string[]) => void;
       setPose: (pose: { x?: number; y?: number; vy?: number }) => void;
       getCourse: () => {

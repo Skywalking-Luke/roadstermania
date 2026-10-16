@@ -574,7 +574,9 @@ button:focus-visible {
 
 .sheet {
   position: absolute;
-  inset: 8% 10%;
+  z-index: 20;
+  overflow-y: auto;
+  inset: 6px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -709,3 +711,56 @@ button:focus-visible {
     filter: grayscale(1);
   }
 }
+
+/* Score HUD + leaderboard */
+.score-hud {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--font-mono);
+  color: #fff;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+.score-hud strong { font-size: clamp(14px, 4vw, 22px); letter-spacing: 0.06em; }
+.score-hud .combo { font-size: 10px; color: #ffd27a; letter-spacing: 0.1em; }
+.result { overflow-y: auto; justify-content: flex-start; padding: 8px 0; }
+.result > :first-child { margin-top: auto; }
+.result > :last-child { margin-bottom: auto; }
+.breakdown {
+  width: min(280px, 86%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #d8d4cc;
+  pointer-events: auto;
+}
+.breakdown p { display: flex; justify-content: space-between; margin: 0; padding: 1px 0; }
+.breakdown .total { border-top: 1px solid #4c4643; margin-top: 3px; padding-top: 3px; color: #fff; font-weight: 700; font-size: 12px; }
+.name-entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #ffd27a;
+  pointer-events: auto;
+}
+.name-entry input {
+  width: 4.2em;
+  padding: 4px 6px;
+  font: 700 16px var(--font-mono);
+  text-transform: uppercase;
+  text-align: center;
+  color: #fff;
+  background: #0b0d10;
+  border: 1px solid #ffd27a;
+}
+.saved { margin: 0; font: 10px var(--font-mono); color: #7dffc3; }
+.sheet h3 { margin: 4px 0 0; font: 600 11px var(--font-mono); color: var(--color-muted); }
+.sheet .scores li strong { color: #fff; }
+.howto .howto-score { font-size: 10px; opacity: 0.8; }

@@ -12,7 +12,11 @@ function ensure() {
     ctx = new AC();
     master = ctx.createGain();
     master.gain.value = wantMute ? 0 : 0.55;
-    master.connect(ctx.destination);
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -12;
+    comp.ratio.value = 6;
+    master.connect(comp);
+    comp.connect(ctx.destination);
     engine = ctx.createOscillator();
     engine.type = "square";
     engine.frequency.value = 70;
@@ -83,9 +87,77 @@ function burst(rate: number, dur: number, gain: number) {
   src.start();
 }
 
+let lastHiss = 0;
+let hissBuf: AudioBuffer | null = null;
+let holdSrc: AudioBufferSourceNode | null = null;
+let holdGain: GainNode | null = null;
+
+function whiteNoise(seconds: number) {
+  if (!ctx) return null;
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
+/** Cold-gas thruster 'pssht': filtered white noise, fast attack, ~200 ms decay. */
+export function playHiss() {
+  if (!ctx || !master) return;
+  const now = ctx.currentTime;
+  // Rapid taps: retrigger quietly instead of stacking into clipping.
+  const gap = now - lastHiss;
+  lastHiss = now;
+  const peak = gap < 0.12 ? 0.12 : 0.22;
+  if (!hissBuf) hissBuf = whiteNoise(0.4);
+  if (!hissBuf) return;
+  const src = ctx.createBufferSource();
+  src.buffer = hissBuf;
+  const hp = ctx.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 1800;
+  const bp = ctx.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.Q.value = 0.7;
+  bp.frequency.setValueAtTime(6500, now);
+  bp.frequency.exponentialRampToValueAtTime(3200, now + 0.2);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(peak, now + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.21);
+  src.connect(hp);
+  hp.connect(bp);
+  bp.connect(g);
+  g.connect(master);
+  src.start(now);
+  src.stop(now + 0.25);
+}
+
+/** Softer continuous hiss while holding to climb. */
+export function setHoldHiss(on: boolean) {
+  if (!ctx || !master) return;
+  if (!holdSrc) {
+    const buf = whiteNoise(1);
+    if (!buf) return;
+    holdSrc = ctx.createBufferSource();
+    holdSrc.buffer = buf;
+    holdSrc.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.frequency.value = 4200;
+    f.Q.value = 0.6;
+    holdGain = ctx.createGain();
+    holdGain.gain.value = 0;
+    holdSrc.connect(f);
+    f.connect(holdGain);
+    holdGain.connect(master);
+    holdSrc.start();
+  }
+  holdGain?.gain.setTargetAtTime(on ? 0.05 : 0, ctx.currentTime, on ? 0.03 : 0.06);
+}
+
 export function playFlap() {
-  blip(220, 0.08, "square", 0.08);
-  burst(900, 0.06, 0.12);
+  playHiss();
 }
 
 export function playFlip() {
