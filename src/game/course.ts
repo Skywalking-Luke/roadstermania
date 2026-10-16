@@ -19,14 +19,15 @@ export const HOVER = 0; // no hover: the car rests on the road
 export const GRAV_FALL = 400; // gravity when the button is released
 export const TAP_V = -205; // upward kick from a tap
 
-/** Base speed grows 11% per level, capped so it stays playable. */
+/** Base speed grows 25% per level, capped so it stays playable. */
 export function levelSpeed(level: number) {
-  return Math.min(165, Math.round(78 * Math.pow(1.11, Math.max(0, level - 1))));
+  return Math.min(300, Math.round(78 * Math.pow(1.25, Math.max(0, level - 1))));
 }
 
 /** Each level's run is 22% longer than the previous one (capped at 10x level 1). */
 export function levelLength(level: number) {
-  return Math.round(BASE_LEN * Math.min(10, Math.pow(1.22, Math.max(0, level - 1))));
+  // Scaled by speed so each level also takes ~22% longer to drive, not less.
+  return Math.round(BASE_LEN * Math.min(10, Math.pow(1.22, Math.max(0, level - 1))) * (levelSpeed(level) / 78));
 }
 const BASE_LEN = 1600;
 export const THRUST = -900;
@@ -91,7 +92,7 @@ export function buildLevel(level: number): Course {
   const slack = Math.max(4, 18 - (L - 1) * 2);
   const gapSlack = Math.max(10, 28 - (L - 1) * 2);
   const barH = Math.min(26, 16 + Math.floor((L - 1) * 1.4));
-  const spacing = Math.max(64, 108 - (L - 1) * 5);
+  const spacing = Math.round(Math.max(64, 108 - (L - 1) * 5) * Math.sqrt(levelSpeed(L) / 78));
   const pad = (k: number) => Math.max(128, Math.round(speed * k));
 
   const arms: ArmObs[] = [];
@@ -99,7 +100,7 @@ export function buildLevel(level: number): Course {
   const tolls: TollObs[] = [];
   const tunnels: TunnelObs[] = [];
   const markers: Marker[] = [];
-  let x = L === 1 ? 460 : 280;
+  let x = L === 1 ? 460 : Math.max(280, Math.round(speed * 1.9));
 
   arms.push({ x, barH, red: L % 3 !== 2 });
   markers.push({ id: "light", x });
@@ -132,38 +133,51 @@ export function buildLevel(level: number): Course {
   markers.push({ id: "toll", x: toll.x - toll.roofLead });
   x += pad(1.2);
 
+  const k = speed / 78; // stretch in-tunnel gaps so reaction time holds at speed
   const jamH = 14;
   const ceil = GROUND - (PH + slack + jamH + slack + PH);
-  const switchUp = L >= 4;
-  const tCars: CarObs[] = [];
-  const count = switchUp ? 4 : 3;
-  let cx = x + 80;
-  for (let i = 0; i < count; i++) {
-    if (switchUp && i === 2) cx += 100;
-    const mode: "mid" | "low" | "high" = !switchUp ? "mid" : i < 2 ? "low" : "high";
-    let y = ceil + PH + slack;
-    let h = jamH;
-    let w = 28;
-    let frame = i % 2;
-    if (mode === "low") {
-      h = PH + 4;
-      y = GROUND - h;
-      w = 32;
-      frame = 2;
-    } else if (mode === "high") {
-      h = PH + 4;
-      y = ceil;
-      w = 32;
-      frame = 3;
+  const tunnelLen = (switchUp: boolean, count: number) => {
+    const pre = Math.round(80 * Math.max(1, k * 0.8));
+    const step = Math.round(48 * Math.max(1, k * 0.7));
+    const swap = switchUp ? Math.round(100 * Math.max(1, k * 0.9)) : 0;
+    return pre + swap + count * step + 40;
+  };
+  const addTunnel = (switchUp: boolean, count: number) => {
+    const pre = Math.round(80 * Math.max(1, k * 0.8));
+    const step = Math.round(48 * Math.max(1, k * 0.7));
+    const swap = Math.round(100 * Math.max(1, k * 0.9));
+    const half = Math.ceil(count / 2);
+    const tCars: CarObs[] = [];
+    let cx = x + pre;
+    for (let i = 0; i < count; i++) {
+      if (switchUp && i === half) cx += swap;
+      const mode: "mid" | "low" | "high" = !switchUp ? "mid" : i < half ? "low" : "high";
+      let y = ceil + PH + slack;
+      let h = jamH;
+      let w = 28;
+      let frame = i % 2;
+      if (mode === "low") {
+        h = PH + 4;
+        y = GROUND - h;
+        w = 32;
+        frame = 2;
+      } else if (mode === "high") {
+        h = PH + 4;
+        y = ceil;
+        w = 32;
+        frame = 3;
+      }
+      tCars.push({ x: cx, y, w, h, frame, jam: false, scored: false });
+      cx += step;
     }
-    tCars.push({ x: cx, y, w, h, frame, jam: false, scored: false });
-    cx += 48;
-  }
-  const len = cx + 40 - x;
-  const tunnel: TunnelObs = { x, len, ceil, cars: tCars, switchUp };
-  tunnels.push(tunnel);
-  markers.push({ id: "tunnel", x });
-  x += len + pad(0.75);
+    const len = cx + 40 - x;
+    tunnels.push({ x, len, ceil, cars: tCars, switchUp });
+    markers.push({ id: "tunnel", x });
+    x += len + pad(0.9);
+  };
+  // Tunnels get longer with level: 3 cars at L1, +1 every 2 levels (max 8).
+  const tCount = (L: number) => Math.min(8, 3 + Math.floor((L - 1) / 2));
+  addTunnel(L >= 4, L >= 4 ? Math.max(4, tCount(L)) : tCount(L));
 
   if (L >= 5) {
     const extra = Math.min(4, 1 + Math.floor(L / 2));
@@ -192,7 +206,17 @@ export function buildLevel(level: number): Course {
   const target = levelLength(L) - 24;
   let seg = 0;
   const nSeg = Math.min(4, 2 + Math.floor(L / 3));
+  // Extra tunnels: +1.5 per level after level 1 (max 12 total), spread through the filler.
+  let tunnelsLeft = Math.min(11, Math.ceil((L - 1) * 1.5));
   for (;;) {
+    const tSwitch = L >= 4 && tunnelsLeft % 2 === 0;
+    const tc = tSwitch ? Math.max(4, tCount(L)) : tCount(L);
+    if (tunnelsLeft > 0 && seg % 2 === 1 && x + tunnelLen(tSwitch, tc) + pad(0.9) <= target) {
+      addTunnel(tSwitch, tc);
+      tunnelsLeft -= 1;
+      seg += 1;
+      continue;
+    }
     const jamFits = x + nSeg * spacing + pad(1.1) <= target;
     const armFits = x + pad(1.1) <= target;
     if (!armFits) break;

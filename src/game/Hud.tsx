@@ -141,7 +141,7 @@ function Title() {
         <li>
           <kbd>LET GO</kbd> fall back to the road
         </li>
-        <li className="howto-score">Every 1000 pts = 1 BOOST (max 3). BOOST button, Shift or B.</li>
+        <li className="howto-score">Every 5000 pts = 1 BOOST (max 3). BOOST button, Shift or B.</li>
         <li className="howto-score">Roll over cars for +100. Chain rolls before landing for up to x5.</li>
       </ul>
       <button

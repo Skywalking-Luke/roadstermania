@@ -25,7 +25,7 @@ import {
   type Snap,
 } from "@/game/store";
 
-const STEP = 1 / 60;
+const STEP = 1 / 120; // sub-stepped so fast levels never skip through obstacles
 
 function flapCode(code: string) {
   return code === "Space" || code === "KeyW" || code === "ArrowUp";
@@ -308,7 +308,7 @@ export function runGame(canvas: HTMLCanvasElement) {
       acc += dt;
       let n = 0;
       let edge = input.edge;
-      while (acc >= STEP && n < 5 && sim.phase === "run") {
+      while (acc >= STEP && n < 10 && sim.phase === "run") {
         const ev = stepSim(sim, STEP, { down: input.down, edge });
         edge = false;
         acc -= STEP;

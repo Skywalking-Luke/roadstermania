@@ -52,7 +52,7 @@ export type Sim = {
 };
 
 export type Boost = { charges: number; t: number; nextAt: number; want: boolean };
-export const BOOST = { every: 1000, max: 3, dur: 1.5, gain: 0.6 };
+export const BOOST = { every: 5000, max: 3, dur: 1.5, gain: 0.6 };
 export function newBoost(): Boost {
   return { charges: 0, t: 0, nextAt: BOOST.every, want: false };
 }
