@@ -38,6 +38,27 @@ document.addEventListener(
   { passive: false },
 );
 
+// Cache safeguards: drop any old service worker/caches, and if this page is an
+// out-of-date copy (GitHub Pages caches HTML ~10 min), reload once onto the new build.
+if ("serviceWorker" in navigator) {
+  void navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => void r.unregister())).catch(() => {});
+}
+if ("caches" in window) void caches.keys().then((ks) => ks.forEach((k) => void caches.delete(k))).catch(() => {});
+(() => {
+  const mine = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')?.src;
+  if (!mine) return;
+  fetch(`${location.pathname}?fresh=${Date.now()}`, { cache: "no-store" })
+    .then((r) => r.text())
+    .then((html) => {
+      const m = html.match(/assets\/index-[\w-]+\.js/);
+      if (!m || mine.includes(m[0])) return;
+      if (sessionStorage.getItem("rm-reloaded") === m[0]) return;
+      sessionStorage.setItem("rm-reloaded", m[0]);
+      location.replace(`${location.pathname}?v=${m[0].slice(13, 21)}`);
+    })
+    .catch(() => {});
+})();
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Frame>

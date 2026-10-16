@@ -296,7 +296,8 @@ export function runGame(canvas: HTMLCanvasElement) {
 
   const frame = (now: number) => {
     if (stopped) return;
-    const dt = Math.min(0.05, (now - last) / 1000);
+    // Up to 0.1 s per frame is simulated so slow phones keep real-time pace.
+    const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     clock += dt;
     commands();
@@ -308,7 +309,7 @@ export function runGame(canvas: HTMLCanvasElement) {
       acc += dt;
       let n = 0;
       let edge = input.edge;
-      while (acc >= STEP && n < 10 && sim.phase === "run") {
+      while (acc >= STEP && n < 14 && sim.phase === "run") {
         const ev = stepSim(sim, STEP, { down: input.down, edge });
         edge = false;
         acc -= STEP;

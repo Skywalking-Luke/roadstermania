@@ -189,9 +189,9 @@ export function toggleMuted() {
 
 let snap: Snap = {
   ...initialSnap,
-  level: save.unlocked,
+  level: 1, // a new session always starts a fresh run at level 1
   unlocked: save.unlocked,
-  bestMs: getBest(save.unlocked),
+  bestMs: getBest(1),
 };
 const listeners = new Set<() => void>();
 

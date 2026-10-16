@@ -841,3 +841,8 @@ input { -webkit-user-select: text; user-select: text; touch-action: manipulation
 .sheet .scores li > :nth-child(n + 2) { text-align: right; }
 
 .score-hud .run-timer { font-size: 11px; color: #cfd9e3; letter-spacing: 0.08em; }
+
+.score-hud .progress { position: relative; display: block; width: min(46vw, 260px); height: 6px; margin-top: 4px; border: 1px solid #cfd9e3aa; background: #0008; }
+.score-hud .progress b { display: block; height: 100%; background: linear-gradient(90deg, #ff6148, #ffd27a); }
+.score-hud .progress i { position: absolute; right: -16px; top: -6px; font-size: 11px; font-style: normal; }
+@media (max-height: 520px) { .level-row { display: flex; } }

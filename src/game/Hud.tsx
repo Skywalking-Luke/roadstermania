@@ -64,7 +64,13 @@ function Overlay() {
         <>
           <div className="score-hud" aria-label="Score">
             <strong>{snap.score.toLocaleString()}</strong>
-            <span className="run-timer">{formatTime(snap.runTime)}</span>
+            <span className="run-timer">
+              LV {String(snap.level).padStart(2, "0")} · {formatTime(snap.runTime)}
+            </span>
+            <span className="progress" role="progressbar" aria-label="Distance to finish" aria-valuenow={Math.round(snap.progress * 100)}>
+              <b style={{ width: `${Math.round(snap.progress * 100)}%` }} />
+              <i>🏁</i>
+            </span>
             {snap.combo > 1 ? <span className="combo">COMBO x{snap.combo}</span> : null}
           </div>
           <p className="live-tip" role="status" aria-live="polite">

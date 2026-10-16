@@ -227,6 +227,19 @@ export function createRenderer() {
       for (const car of sim.course.cars) drawCar(ctx, sprites, car, cam);
       for (const tun of sim.course.tunnels) for (const car of tun.cars) drawCar(ctx, sprites, car, cam);
 
+      // Checkered finish line across the road + FINISH board.
+      const fl = Math.round(sim.course.finish + PW - cam);
+      if (fl > -40 && fl < VW + 40) {
+        for (let r = 0; r < 4; r++)
+          for (let c = 0; c < 2; c++) {
+            ctx.fillStyle = (r + c) % 2 ? "#111" : "#f4f4f4";
+            ctx.fillRect(fl + c * 3, GROUND + 1 + r * 3, 3, 3);
+          }
+        ctx.fillStyle = "#f4f4f4";
+        ctx.fillRect(fl, GROUND - 60, 1, 60);
+        ctx.font = "7px monospace";
+        ctx.fillText("FINISH", fl - 12, GROUND - 52);
+      }
       const arch = Math.round(sim.course.finish - cam);
       ctx.fillStyle = "#ff4a32";
       ctx.fillRect(arch, GROUND - 48, 3, 48);
