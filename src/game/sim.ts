@@ -49,6 +49,8 @@ export type Sim = {
   popups: Popup[];
   score: Score;
   boost: Boost;
+  /** Seconds of post-continue invincibility. */
+  inv?: number;
 };
 
 export type Boost = { charges: number; t: number; nextAt: number; want: boolean };
@@ -143,6 +145,7 @@ export function previewLevel(sim: Sim, level: number) {
 }
 
 function load(sim: Sim, level: number) {
+  sim.inv = 0;
   sim.level = level;
   sim.course = buildLevel(level);
   sim.time = 0;
@@ -180,6 +183,7 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   sim.shake = Math.max(0, sim.shake - dt * 8);
   sim.flash = Math.max(0, sim.flash - dt * 1.6);
   sim.lock = Math.max(0, sim.lock - dt);
+  if (sim.inv && sim.phase === "run" && !sim.paused) sim.inv = Math.max(0, sim.inv - dt);
   for (const pop of sim.popups) {
     pop.life -= dt;
     pop.y -= 14 * dt;
@@ -248,7 +252,7 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   let landed = false;
   let badLand = false;
   if (!p.stuck && p.y + PH >= GROUND) {
-    badLand = p.vy > 110 && Math.cos(p.roll) < 0.3;
+    badLand = p.vy > 110 && Math.cos(p.roll) < 0.3 && !(sim.inv && sim.inv > 0);
     p.y = GROUND - PH;
     if (p.vy > 0) p.vy *= 0.2;
     if (!badLand && !input.down) p.vy = Math.min(p.vy, 0);
@@ -367,6 +371,7 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   const smashing = bst.t > 0;
   for (const s of sim.course.solids) {
     if (smashing && (s.kind === "car" || s.kind === "jam")) continue;
+    if (sim.inv && sim.inv > 0) break;
     if (hx < s.x + s.w && hx + hw > s.x && hy < s.y + s.h && hy + hh > s.y) {
       crash = true;
       sim.phase = "crash";

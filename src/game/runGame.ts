@@ -105,13 +105,32 @@ export function runGame(canvas: HTMLCanvasElement) {
   let prevTest = false;
   let clock = 0;
   let recorded = false;
+  let contUsed = false;
   let appliedMute = isMuted();
+
+  const cont = () => {
+    if (sim.phase !== "crash" || contUsed) return;
+    contUsed = true;
+    (window as unknown as { __rrContUsed?: boolean }).__rrContUsed = true;
+    const p = sim.player;
+    p.vy = 0;
+    p.roll = 0;
+    p.spin = 0;
+    sim.phase = "run";
+    sim.reason = "";
+    sim.inv = 2;
+    sim.lock = 0;
+    sim.paused = false;
+    releaseFlap();
+  };
 
   const newRun = () => {
     carried = 0;
     carriedTime = 0;
     sim.boost = newBoost();
     runId += 1;
+    contUsed = false;
+    (window as unknown as { __rrContUsed?: boolean }).__rrContUsed = false;
   };
 
   const retry = () => {
@@ -149,6 +168,7 @@ export function runGame(canvas: HTMLCanvasElement) {
         renderer.reset();
         recorded = false;
       } else if (cmd.t === "again") retry();
+      else if (cmd.t === "cont") cont();
       else if (cmd.t === "next") next();
       else if (cmd.t === "title") toTitle();
       else if (cmd.t === "mute") {

@@ -284,6 +284,53 @@ function Paused() {
   );
 }
 
+type LHAdsApi = {
+  rewardEnabled?: boolean;
+  banner?: (el: HTMLElement) => void;
+  offerReward?: (onAvailable: (show: () => Promise<boolean>) => void) => void;
+};
+const lhAds = () => (window as unknown as { LHAds?: LHAdsApi }).LHAds;
+
+function AdBanner() {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (el) lhAds()?.banner?.(el);
+  }, [el]);
+  return <div ref={setEl} className="lh-ad" style={{ display: "none", margin: "8px auto", maxWidth: 728, width: "100%" }} />;
+}
+
+function ContinueAd() {
+  const [show, setShow] = useState<null | (() => Promise<boolean>)>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const ads = lhAds();
+    if (!ads?.rewardEnabled || (window as unknown as { __rrContUsed?: boolean }).__rrContUsed) return;
+    ads.offerReward?.((fn) => {
+      if (live) setShow(() => fn);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!show) return null;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        show().then((ok) => {
+          setShow(null);
+          if (ok) send({ t: "cont" });
+        });
+      }}
+    >
+      ▶ WATCH AD TO CONTINUE
+    </button>
+  );
+}
+
 function Crash() {
   const snap = useSyncExternalStore(subscribe, getSnap, getSnap);
   return (
@@ -293,7 +340,9 @@ function Crash() {
       <Breakdown snap={snap} />
       <SaveScore snap={snap} />
       <p className="result-help">Hold climbs. A tap rolls. Let go and you drop.</p>
+      <AdBanner />
       <div className="result-actions">
+        <ContinueAd />
         <button type="button" onClick={() => send({ t: "again" })}>
           RETRY
         </button>
@@ -313,6 +362,7 @@ function Clear() {
       <h2>LEVEL {String(snap.level).padStart(2, "0")}</h2>
       <Breakdown snap={snap} />
       <SaveScore snap={snap} clear />
+      <AdBanner />
       <div className="result-actions">
         <button type="button" onClick={() => send({ t: "next" })}>
           NEXT · FASTER

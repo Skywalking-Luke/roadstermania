@@ -212,6 +212,7 @@ export function publish(next: Snap) {
 export type Cmd =
   | { t: "start" }
   | { t: "again" }
+  | { t: "cont" }
   | { t: "next" }
   | { t: "title" }
   | { t: "mute" }
