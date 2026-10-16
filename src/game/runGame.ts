@@ -1,7 +1,7 @@
-import { playClear, playCrash, playFlap, playFlip, resumeAudio, setHoldHiss, setMuted, unlockAudio, updateEngine } from "@/game/audio";
+import { playBoost, playClear, playCrash, playFlap, playFlip, resumeAudio, setHoldHiss, setMuted, unlockAudio, updateEngine } from "@/game/audio";
 import { createRenderer } from "@/game/draw";
-import { GROUND, PH, VH, VW } from "@/game/course";
-import { begin, createSim, previewLevel, scoreTotal, stepSim, type Sim } from "@/game/sim";
+import { GROUND, PH, VH, VW, setViewWidth } from "@/game/course";
+import { BOOST, begin, boostLevel, createSim, newBoost, previewLevel, scoreTotal, stepSim, type Sim } from "@/game/sim";
 import { loadSprites } from "@/game/sprites";
 import {
   drain,
@@ -14,7 +14,9 @@ import {
   isRunSaved,
   qualifies,
   pressFlap,
+  pressBoost,
   publish,
+  takeBoost,
   recordClear,
   releaseFlap,
   setTestKeys,
@@ -30,6 +32,7 @@ function flapCode(code: string) {
 }
 
 let carried = 0;
+let carriedTime = 0;
 let runId = 1;
 
 function toSnap(sim: Sim): Snap {
@@ -68,14 +71,28 @@ function toSnap(sim: Sim): Snap {
       bestCombo: sim.score.bestCombo,
     },
     runId,
+    runTime: carriedTime + sim.time,
+    boostCharges: sim.boost.charges,
+    boostFill: sim.boost.charges >= BOOST.max ? 1 : 1 - (sim.boost.nextAt - scoreTotal(sim.score)) / BOOST.every,
+    boosting: sim.boost.t > 0,
   };
 }
 
 export function runGame(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) throw new Error("Could not start the pixel lap.");
-  canvas.width = VW;
   canvas.height = VH;
+  const fit = () => {
+    const r = canvas.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) setViewWidth((VH * r.width) / r.height);
+    if (canvas.width !== VW) canvas.width = VW;
+    ctx.imageSmoothingEnabled = false;
+  };
+  fit();
+  const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => fit()) : null;
+  ro?.observe(canvas);
+  window.addEventListener("resize", fit);
+  window.addEventListener("orientationchange", fit);
 
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const sim = createSim(Math.max(1, getSnap().level || 1));
@@ -92,6 +109,8 @@ export function runGame(canvas: HTMLCanvasElement) {
 
   const newRun = () => {
     carried = 0;
+    carriedTime = 0;
+    sim.boost = newBoost();
     runId += 1;
   };
 
@@ -106,6 +125,7 @@ export function runGame(canvas: HTMLCanvasElement) {
   const next = () => {
     if (sim.phase !== "clear") return;
     carried += scoreTotal(sim.score);
+    carriedTime += sim.time;
     begin(sim, sim.level + 1);
     renderer.reset();
     recorded = false;
@@ -182,6 +202,13 @@ export function runGame(canvas: HTMLCanvasElement) {
       return;
     }
     unlockAudio();
+    if ((e.code === "ShiftLeft" || e.code === "ShiftRight" || e.code === "KeyB") && !e.repeat) {
+      if (sim.phase === "run" && !sim.paused) {
+        e.preventDefault();
+        pressBoost();
+      }
+      return;
+    }
     if (sim.paused) return;
     if (!flapCode(e.code) || e.repeat || sim.phase !== "run" || sim.paused) return;
     e.preventDefault();
@@ -197,6 +224,10 @@ export function runGame(canvas: HTMLCanvasElement) {
     const target = e.target as HTMLElement | null;
     if (target?.closest("button, input, form, .sheet")) return;
     const pending = qualifies(carried + scoreTotal(sim.score)) && !isRunSaved(runId);
+    if (e.button === 2) {
+      if (sim.phase === "run" && !sim.paused) pressBoost();
+      return;
+    }
     if (sim.phase === "run" && !sim.paused) pressFlap();
     else if (sim.phase === "crash" && sim.lock <= 0 && !pending) retry();
     else if (sim.phase === "clear" && sim.lock <= 0) next();
@@ -209,6 +240,10 @@ export function runGame(canvas: HTMLCanvasElement) {
     else resumeAudio();
   };
 
+  const onCtx = (e: MouseEvent) => {
+    if (sim.phase === "run") e.preventDefault();
+  };
+  window.addEventListener("contextmenu", onCtx);
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("pointerdown", onPointerDown);
@@ -226,6 +261,11 @@ export function runGame(canvas: HTMLCanvasElement) {
     getStuck: () => sim.player.stuck,
     getFlips: () => sim.flips,
     getScore: () => carried + scoreTotal(sim.score),
+    getBoost: () => ({ charges: sim.boost.charges, t: sim.boost.t, level: boostLevel(sim.boost) }),
+    giveBoost: (n: number) => {
+      sim.boost.charges = Math.min(BOOST.max, n);
+    },
+    getViewWidth: () => VW,
     setKeys: (codes: string[]) => setTestKeys(codes),
     setPose: (pose: { x?: number; y?: number; vy?: number }) => {
       if (sim.phase === "title") begin(sim, sim.level);
@@ -262,6 +302,7 @@ export function runGame(canvas: HTMLCanvasElement) {
     commands();
 
     const input = readFlap();
+    if (takeBoost() && sim.phase === "run" && !sim.paused) sim.boost.want = true;
     const fx = { flap: false, flip: false, crash: false, landed: false, clear: false };
     if (sim.phase === "run") {
       acc += dt;
@@ -277,6 +318,7 @@ export function runGame(canvas: HTMLCanvasElement) {
         fx.crash = fx.crash || ev.crash;
         fx.landed = fx.landed || ev.landed;
         fx.clear = fx.clear || ev.clear;
+        if (ev.boosted) playBoost();
       }
     } else {
       acc = 0;
@@ -309,6 +351,10 @@ export function runGame(canvas: HTMLCanvasElement) {
   return {
     stop() {
       stopped = true;
+      ro?.disconnect();
+      window.removeEventListener("resize", fit);
+      window.removeEventListener("orientationchange", fit);
+      window.removeEventListener("contextmenu", onCtx);
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
@@ -333,6 +379,9 @@ declare global {
       getStuck: () => boolean;
       getFlips: () => number;
       getScore: () => number;
+      getBoost: () => { charges: number; t: number; level: number };
+      giveBoost: (n: number) => void;
+      getViewWidth: () => number;
       setKeys: (codes: string[]) => void;
       setPose: (pose: { x?: number; y?: number; vy?: number }) => void;
       getCourse: () => {

@@ -48,7 +48,22 @@ export type Sim = {
   course: Course;
   popups: Popup[];
   score: Score;
+  boost: Boost;
 };
+
+export type Boost = { charges: number; t: number; nextAt: number; want: boolean };
+export const BOOST = { every: 1000, max: 3, dur: 1.5, gain: 0.6 };
+export function newBoost(): Boost {
+  return { charges: 0, t: 0, nextAt: BOOST.every, want: false };
+}
+/** Eased 0..1 boost strength: quick ramp in, smooth fade out. */
+export function boostLevel(b: Boost) {
+  if (b.t <= 0) return 0;
+  const k = b.t / BOOST.dur; // 1 -> 0
+  const inn = Math.min(1, (1 - k) / 0.12);
+  const out = Math.min(1, k / 0.35);
+  return Math.sin((Math.min(inn, out) * Math.PI) / 2);
+}
 
 /** Points for the current level attempt (carried totals live in runGame). */
 export type Score = {
@@ -109,6 +124,7 @@ export function createSim(level: number): Sim {
     course: buildLevel(level),
     popups: [],
     score: newScore(),
+    boost: newBoost(),
   };
   sim.hint = hintFor(sim);
   sim.node = nodeFor(sim);
@@ -139,6 +155,7 @@ function load(sim: Sim, level: number) {
   sim.player = spawn();
   sim.popups = [];
   sim.score = newScore();
+  sim.boost = { ...sim.boost, t: 0, want: false, nextAt: BOOST.every };
   sim.hint = hintFor(sim);
   sim.node = nodeFor(sim);
 }
@@ -169,11 +186,24 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   }
   sim.popups = sim.popups.filter((p) => p.life > 0);
 
-  if (sim.phase !== "run" || sim.paused) return { flap: false, flip: false, crash: false, clear: false, landed: false };
+  if (sim.phase !== "run" || sim.paused) return { flap: false, flip: false, crash: false, clear: false, landed: false, boosted: false };
 
   sim.time += dt;
   const p = sim.player;
-  const speed = sim.course.speed;
+  const bst = sim.boost;
+  let boosted = false;
+  if (bst.want) {
+    bst.want = false;
+    if (bst.charges > 0 && bst.t <= 0) {
+      bst.charges -= 1;
+      bst.t = BOOST.dur;
+      boosted = true;
+      sim.popups.push({ x: p.x, y: p.y - 12, life: 0.8, text: "BOOST" });
+      sim.shake = Math.max(sim.shake, 1.2);
+    }
+  }
+  const speed = sim.course.speed * (1 + BOOST.gain * boostLevel(bst));
+  bst.t = Math.max(0, bst.t - dt);
   let flap = false;
 
   if (p.stuck && !input.down) {
@@ -334,7 +364,9 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
   const hy = p.y + 2;
   const hw = PW - 16;
   const hh = PH - 4;
+  const smashing = bst.t > 0;
   for (const s of sim.course.solids) {
+    if (smashing && (s.kind === "car" || s.kind === "jam")) continue;
     if (hx < s.x + s.w && hx + hw > s.x && hy < s.y + s.h && hy + hh > s.y) {
       crash = true;
       sim.phase = "crash";
@@ -359,6 +391,16 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
     sim.hint = "Lap clear";
   }
 
+  // Every 1000 points earned this level adds a boost charge (max 3).
+  const earned = scoreTotal(sim.score);
+  while (earned >= bst.nextAt) {
+    bst.nextAt += BOOST.every;
+    if (bst.charges < BOOST.max) {
+      bst.charges += 1;
+      sim.popups.push({ x: p.x, y: p.y - 20, life: 0.9, text: "+BOOST" });
+    }
+  }
+
   p.prevX = p.x;
   if (!clear) {
     sim.hint = hintFor(sim);
@@ -367,7 +409,7 @@ export function stepSim(sim: Sim, dt: number, input: FlapInput) {
     sim.node = sim.course.markers.length - 1;
   }
 
-  return { flap, flip, crash, clear, landed };
+  return { flap, flip, crash, clear, landed, boosted };
 }
 
 function nodeFor(sim: Sim) {

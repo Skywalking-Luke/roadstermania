@@ -156,6 +156,33 @@ export function setHoldHiss(on: boolean) {
   holdGain?.gain.setTargetAtTime(on ? 0.05 : 0, ctx.currentTime, on ? 0.03 : 0.06);
 }
 
+/** Stronger, longer cold-gas blast for the forward boost. */
+export function playBoost() {
+  if (!ctx || !master) return;
+  const now = ctx.currentTime;
+  if (!hissBuf) hissBuf = whiteNoise(0.4);
+  const buf = whiteNoise(0.7);
+  if (!buf) return;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const bp = ctx.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.Q.value = 0.5;
+  bp.frequency.setValueAtTime(2600, now);
+  bp.frequency.exponentialRampToValueAtTime(5200, now + 0.12);
+  bp.frequency.exponentialRampToValueAtTime(1800, now + 0.6);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(0.3, now + 0.015);
+  g.gain.setTargetAtTime(0.12, now + 0.1, 0.12);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+  src.connect(bp);
+  bp.connect(g);
+  g.connect(master);
+  src.start(now);
+  src.stop(now + 0.7);
+}
+
 export function playFlap() {
   playHiss();
 }

@@ -1,5 +1,5 @@
 import { GROUND, PH, PW, ROOF, VH, VW, WALL, type CarObs } from "@/game/course";
-import type { Sim } from "@/game/sim";
+import { boostLevel, type Sim } from "@/game/sim";
 import type { Sprites } from "@/game/sprites";
 
 type Part = { x: number; y: number; vx: number; vy: number; life: number; color: string; gas?: boolean; max?: number };
@@ -48,6 +48,25 @@ export function createRenderer() {
           gas: true,
         });
       }
+    }
+  }
+
+  /** Horizontal cold-gas jets out the rear during a forward boost. */
+  function exhaust(sim: Sim, level: number) {
+    const p = sim.player;
+    const n = 1 + Math.round(level * 3);
+    for (let i = 0; i < n; i++) {
+      const life = 0.25 + Math.random() * 0.3;
+      parts.push({
+        x: p.x - 2,
+        y: p.y + PH * 0.45 + (Math.random() - 0.5) * 4,
+        vx: -(120 + Math.random() * 90) * level,
+        vy: (Math.random() - 0.5) * 14,
+        life,
+        max: life,
+        color: GAS[Math.floor(Math.random() * GAS.length)],
+        gas: true,
+      });
     }
   }
 
@@ -224,6 +243,8 @@ export function createRenderer() {
         vent(sim, 5);
       }
       if (sim.phase === "run" && !sim.paused && (flame > 0 || p.vy < -18)) vent(sim, flame > 0.1 ? 2 : 1);
+      const bl = boostLevel(sim.boost);
+      if (bl > 0.05 && sim.phase === "run" && !sim.paused) exhaust(sim, bl);
       if (fx.flip) burst(p.x + PW * 0.5, p.y, "#dfe8f0", 10, 42);
       if (fx.crash) burst(p.x + PW * 0.5, p.y + PH * 0.5, "#ff3b30", 16, 70);
       if (fx.landed && !wasGround) burst(p.x + 6, GROUND, "#a39e93", 5, 24);
@@ -324,6 +345,16 @@ function drawHero(
   const dh = 11;
   const top = PH / 2 - dh;
   const burning = flame > 0 || p.vy < -18 || p.spin > 2;
+  const bl = boostLevel(sim.boost);
+  if (bl > 0.05) {
+    ctx.fillStyle = "#ffffff";
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(-dw / 2 - 3, top + 4, 3, 3);
+    ctx.fillStyle = "#d4e0ea";
+    ctx.globalAlpha = 0.5 * bl;
+    ctx.fillRect(-dw / 2 - 3 - Math.round(10 * bl), top + 3, Math.round(10 * bl), 5);
+    ctx.globalAlpha = 1;
+  }
   if (burning && !p.stuck) {
     // Cold-gas jets straight down from the front and back wheel nozzles.
     const len = 4 + Math.round(Math.min(1, flame * 6 + Math.max(0, -p.vy) / 120) * 6);

@@ -1,4 +1,9 @@
-export const VW = 320;
+/** Logical view width; adapts to the screen's aspect ratio (height stays VH). */
+export let VW = 320;
+export function setViewWidth(w: number) {
+  VW = Math.max(240, Math.min(640, Math.round(w)));
+  return VW;
+}
 export const VH = 180;
 export const GROUND = 158;
 export const PW = 26;

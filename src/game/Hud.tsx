@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { unlockAudio } from "@/game/audio";
 import {
   formatTime,
@@ -7,6 +7,7 @@ import {
   getScores,
   getSnap,
   isRunSaved,
+  pressBoost,
   pressFlap,
   qualifies,
   releaseFlap,
@@ -45,6 +46,7 @@ function Overlay() {
           LH CARS
         </a>
       ) : null}
+      <FullscreenButton />
       {snap.phase === "title" ? (
         <button
           type="button"
@@ -84,6 +86,28 @@ function Overlay() {
           >
             HOLD
           </button>
+          <button
+            type="button"
+            className={`boost-pad${snap.boostCharges > 0 ? " ready" : ""}${snap.boosting ? " firing" : ""}`}
+            aria-label={`Boost, ${snap.boostCharges} charges`}
+            disabled={snap.boostCharges === 0 && !snap.boosting}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              unlockAudio();
+              pressBoost();
+            }}
+          >
+            <span>BOOST</span>
+            <span className="pips" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <i key={i} className={i < snap.boostCharges ? "on" : ""} />
+              ))}
+            </span>
+            <span className="fill" aria-hidden="true">
+              <b style={{ width: `${Math.round(Math.max(0, Math.min(1, snap.boostFill)) * 100)}%` }} />
+            </span>
+          </button>
         </>
       ) : null}
       {snap.paused ? <Paused /> : null}
@@ -117,6 +141,7 @@ function Title() {
         <li>
           <kbd>LET GO</kbd> fall back to the road
         </li>
+        <li className="howto-score">Every 1000 pts = 1 BOOST (max 3). BOOST button, Shift or B.</li>
         <li className="howto-score">Roll over cars for +100. Chain rolls before landing for up to x5.</li>
       </ul>
       <button
@@ -293,6 +318,41 @@ function Clear() {
   );
 }
 
+function FullscreenButton() {
+  const doc = typeof document !== "undefined" ? (document as Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void }) : null;
+  const supported = !!doc && (doc.fullscreenEnabled || doc.webkitFullscreenEnabled);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (!doc) return;
+    const sync = () => setOn(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+    doc.addEventListener("fullscreenchange", sync);
+    doc.addEventListener("webkitfullscreenchange", sync);
+    return () => {
+      doc.removeEventListener("fullscreenchange", sync);
+      doc.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, [doc]);
+  if (!supported || !doc) return null;
+  return (
+    <button
+      type="button"
+      className="fs-btn"
+      aria-label={on ? "Exit fullscreen" : "Fullscreen"}
+      onClick={() => {
+        const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+        if (on) {
+          if (doc.exitFullscreen) void doc.exitFullscreen().catch(() => {});
+          else doc.webkitExitFullscreen?.();
+        } else if (el.requestFullscreen) {
+          void el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+        } else el.webkitRequestFullscreen?.();
+      }}
+    >
+      {on ? "⤡" : "⛶"}
+    </button>
+  );
+}
+
 function Breakdown({ snap }: { snap: Snap }) {
   const b = snap.breakdown;
   const rows: [string, number][] = [
@@ -329,7 +389,7 @@ function SaveScore({ snap, clear }: { snap: Snap; clear?: boolean }) {
       className="name-entry"
       onSubmit={(e) => {
         e.preventDefault();
-        const r = submitScore(snap.runId, name, snap.score, snap.level, snap.breakdown.rolls);
+        const r = submitScore(snap.runId, name, snap.score, snap.level, snap.breakdown.rolls, snap.runTime);
         setRank(r || -1);
       }}
     >
@@ -368,6 +428,7 @@ function Board({ onClose }: { onClose: () => void }) {
               {String(i + 1).padStart(2, "0")} {row.name}
             </span>
             <span>LV {row.level}</span>
+            <span className="t">{row.time == null ? "—" : formatTime(row.time)}</span>
             <strong>{row.score.toLocaleString()}</strong>
           </li>
         ))}

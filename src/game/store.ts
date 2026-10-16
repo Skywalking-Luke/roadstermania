@@ -24,6 +24,10 @@ export type Snap = {
   combo: number;
   breakdown: Breakdown;
   runId: number;
+  runTime: number;
+  boostCharges: number;
+  boostFill: number;
+  boosting: boolean;
 };
 
 export type Breakdown = { distance: number; passes: number; rolls: number; rollPts: number; ceiling: number; clear: number; bestCombo: number };
@@ -53,9 +57,13 @@ export const initialSnap: Snap = {
   combo: 0,
   breakdown: emptyBreakdown,
   runId: 0,
+  runTime: 0,
+  boostCharges: 0,
+  boostFill: 0,
+  boosting: false,
 };
 
-export type ScoreRow = { name: string; score: number; level: number; rolls: number; at: number };
+export type ScoreRow = { name: string; score: number; level: number; rolls: number; at: number; time?: number };
 
 // v2 shape kept; `scores` and `name` are optional additions so older saves load unchanged.
 type Save = { v: 2; best: Record<string, number>; unlocked: number; scores?: ScoreRow[]; name?: string };
@@ -85,6 +93,7 @@ function readSave(): Save {
               level: Number(r.level) || 1,
               rolls: Number(r.rolls) || 0,
               at: Number(r.at) || 0,
+              time: typeof r.time === "number" && Number.isFinite(r.time) ? r.time : undefined,
             }))
             .sort((a, b) => b.score - a.score)
             .slice(0, 10)
@@ -136,11 +145,11 @@ export function isRunSaved(runId: number) {
 }
 
 /** Saves a score; returns its 1-based rank, or 0 if it did not place. */
-export function submitScore(runId: number, rawName: string, score: number, level: number, rolls: number) {
+export function submitScore(runId: number, rawName: string, score: number, level: number, rolls: number, time?: number) {
   if (savedRuns.has(runId) || !qualifies(score)) return 0;
   savedRuns.add(runId);
   const name = (rawName.replace(/[^a-z0-9]/gi, "").toUpperCase() || "AAA").slice(0, 3);
-  const row: ScoreRow = { name, score: Math.floor(score), level, rolls, at: Date.now() };
+  const row: ScoreRow = { name, score: Math.floor(score), level, rolls, at: Date.now(), time: time == null ? undefined : Math.round(time * 100) / 100 };
   const rows = [...getScores(), row].sort((a, b) => b.score - a.score || a.at - b.at).slice(0, 10);
   save.scores = rows;
   save.name = name;
@@ -222,6 +231,16 @@ let edges = 0;
 export function pressFlap() {
   if (!held) edges += 1;
   held = true;
+}
+
+let boostReq = false;
+export function pressBoost() {
+  boostReq = true;
+}
+export function takeBoost() {
+  const b = boostReq;
+  boostReq = false;
+  return b;
 }
 
 export function releaseFlap() {

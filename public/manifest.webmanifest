@@ -1,0 +1,11 @@
+{
+  "name": "Roadstermania",
+  "short_name": "Roadstermania",
+  "start_url": "/roadstermania/",
+  "scope": "/roadstermania/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#07080c",
+  "theme_color": "#07080c",
+  "icons": [{ "src": "/roadstermania/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
