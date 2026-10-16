@@ -839,3 +839,5 @@ input { -webkit-user-select: text; user-select: text; touch-action: manipulation
 .sheet .scores li .t { color: var(--color-muted); }
 .sheet .scores li { display: grid; grid-template-columns: 1fr 3.5em 5.5em 5.5em; align-items: baseline; }
 .sheet .scores li > :nth-child(n + 2) { text-align: right; }
+
+.score-hud .run-timer { font-size: 11px; color: #cfd9e3; letter-spacing: 0.08em; }

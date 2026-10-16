@@ -24,12 +24,12 @@ export function levelSpeed(level: number) {
   return Math.min(300, Math.round(78 * Math.pow(1.25, Math.max(0, level - 1))));
 }
 
-/** Each level's run is 22% longer than the previous one (capped at 10x level 1). */
+/** Each level's run is 30% longer in drive time than the previous one. */
 export function levelLength(level: number) {
-  // Scaled by speed so each level also takes ~22% longer to drive, not less.
-  return Math.round(BASE_LEN * Math.min(10, Math.pow(1.22, Math.max(0, level - 1))) * (levelSpeed(level) / 78));
+  // Scaled by speed so each level takes 30% longer to drive, not less.
+  return Math.round(BASE_LEN * Math.min(20, Math.pow(1.3, Math.max(0, level - 1))) * (levelSpeed(level) / 78));
 }
-const BASE_LEN = 1600;
+const BASE_LEN = 1010; // level 1 is ~11-12 s of driving
 export const THRUST = -900;
 
 export type MarkerId = "light" | "jam" | "toll" | "tunnel" | "arch";
@@ -100,14 +100,16 @@ export function buildLevel(level: number): Course {
   const tolls: TollObs[] = [];
   const tunnels: TunnelObs[] = [];
   const markers: Marker[] = [];
-  let x = L === 1 ? 460 : Math.max(280, Math.round(speed * 1.9));
+  let x = L === 1 ? 250 : Math.max(280, Math.round(speed * 1.9));
 
-  arms.push({ x, barH, red: L % 3 !== 2 });
-  markers.push({ id: "light", x });
-  x += pad(1.25);
+  if (L > 1) {
+    arms.push({ x, barH, red: L % 3 !== 2 });
+    markers.push({ id: "light", x });
+    x += pad(1.25);
+  }
 
   markers.push({ id: "jam", x });
-  const nJam = Math.min(6, 2 + L);
+  const nJam = L === 1 ? 2 : Math.min(6, 1 + L);
   for (let i = 0; i < nJam; i++) {
     const spec = L >= 3 && i % 3 === 2 ? SPECS[3] : i % 2 === 1 ? SPECS[2] : SPECS[i % 2];
     cars.push({
@@ -123,6 +125,7 @@ export function buildLevel(level: number): Course {
   }
   x += pad(1.15);
 
+  if (L > 1) {
   const toll: TollObs = {
     x,
     high: L % 2 === 0,
@@ -132,6 +135,7 @@ export function buildLevel(level: number): Course {
   tolls.push(toll);
   markers.push({ id: "toll", x: toll.x - toll.roofLead });
   x += pad(1.2);
+  }
 
   const k = speed / 78; // stretch in-tunnel gaps so reaction time holds at speed
   const jamH = 14;

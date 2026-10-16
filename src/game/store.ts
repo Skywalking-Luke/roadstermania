@@ -95,7 +95,7 @@ function readSave(): Save {
               at: Number(r.at) || 0,
               time: typeof r.time === "number" && Number.isFinite(r.time) ? r.time : undefined,
             }))
-            .sort((a, b) => b.score - a.score)
+            .sort((a, b) => b.score - a.score || (a.time ?? Infinity) - (b.time ?? Infinity))
             .slice(0, 10)
         : [],
       name: typeof parsed.name === "string" ? parsed.name.slice(0, 3) : undefined,
@@ -150,7 +150,10 @@ export function submitScore(runId: number, rawName: string, score: number, level
   savedRuns.add(runId);
   const name = (rawName.replace(/[^a-z0-9]/gi, "").toUpperCase() || "AAA").slice(0, 3);
   const row: ScoreRow = { name, score: Math.floor(score), level, rolls, at: Date.now(), time: time == null ? undefined : Math.round(time * 100) / 100 };
-  const rows = [...getScores(), row].sort((a, b) => b.score - a.score || a.at - b.at).slice(0, 10);
+  // Rank by points; ties go to the faster run time, then the earlier entry.
+  const rows = [...getScores(), row]
+    .sort((a, b) => b.score - a.score || (a.time ?? Infinity) - (b.time ?? Infinity) || a.at - b.at)
+    .slice(0, 10);
   save.scores = rows;
   save.name = name;
   writeSave();

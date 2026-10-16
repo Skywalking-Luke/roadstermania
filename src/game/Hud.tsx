@@ -64,6 +64,7 @@ function Overlay() {
         <>
           <div className="score-hud" aria-label="Score">
             <strong>{snap.score.toLocaleString()}</strong>
+            <span className="run-timer">{formatTime(snap.runTime)}</span>
             {snap.combo > 1 ? <span className="combo">COMBO x{snap.combo}</span> : null}
           </div>
           <p className="live-tip" role="status" aria-live="polite">
@@ -190,8 +191,8 @@ function Console() {
             <strong>{String(snap.level).padStart(2, "0")}</strong>
           </div>
           <div>
-            <span>TIME</span>
-            <strong>{formatTime(snap.time)}</strong>
+            <span>RUN TIME</span>
+            <strong>{formatTime(snap.runTime)}</strong>
           </div>
           <div>
             <span>ROLLS</span>
@@ -374,6 +375,10 @@ function Breakdown({ snap }: { snap: Snap }) {
       <p className="total">
         <span>TOTAL</span>
         <span>{snap.score.toLocaleString()}</span>
+      </p>
+      <p className="total">
+        <span>RUN TIME</span>
+        <span>{formatTime(snap.runTime)}</span>
       </p>
     </div>
   );
