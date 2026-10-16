@@ -1,0 +1,193 @@
+export type Phase = "title" | "run" | "crash" | "clear";
+
+export type Snap = {
+  phase: Phase;
+  level: number;
+  unlocked: number;
+  time: number;
+  flips: number;
+  bestMs: number | null;
+  progress: number;
+  hint: string;
+  muted: boolean;
+  flash: number;
+  node: number;
+  stuck: boolean;
+  reason: string;
+  paused: boolean;
+  alt: number;
+  downforce: number;
+  roll: number;
+  thrust: boolean;
+};
+
+export const initialSnap: Snap = {
+  phase: "title",
+  level: 1,
+  unlocked: 1,
+  time: 0,
+  flips: 0,
+  bestMs: null,
+  progress: 0,
+  hint: "Tap to flap",
+  muted: false,
+  flash: 0,
+  node: 0,
+  stuck: false,
+  reason: "",
+  paused: false,
+  alt: 0,
+  downforce: 50,
+  roll: 0,
+  thrust: false,
+};
+
+type Save = { v: 2; best: Record<string, number>; unlocked: number };
+
+const KEY = "reveal-run-v2";
+
+let save: Save = { v: 2, best: {}, unlocked: 1 };
+let muted = false;
+
+function readSave(): Save {
+  if (typeof localStorage === "undefined") return save;
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return { v: 2, best: {}, unlocked: 1 };
+    const parsed = JSON.parse(raw) as Partial<Save>;
+    if (parsed.v !== 2 || !parsed.best) return { v: 2, best: {}, unlocked: 1 };
+    return {
+      v: 2,
+      best: parsed.best,
+      unlocked: Math.max(1, parsed.unlocked ?? 1),
+    };
+  } catch {
+    return { v: 2, best: {}, unlocked: 1 };
+  }
+}
+
+save = readSave();
+
+function writeSave() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(save));
+  } catch {
+    /* private mode */
+  }
+}
+
+export function getBoard() {
+  return Object.entries(save.best)
+    .map(([level, ms]) => ({ level: Number(level), ms }))
+    .filter((row) => Number.isFinite(row.level))
+    .sort((a, b) => a.level - b.level);
+}
+
+export function getUnlocked() {
+  return save.unlocked;
+}
+
+export function getBest(level: number) {
+  const ms = save.best[String(level)];
+  return ms == null ? null : ms;
+}
+
+export function recordClear(level: number, seconds: number) {
+  const ms = Math.round(seconds * 1000);
+  const prev = save.best[String(level)];
+  if (prev == null || ms < prev) save.best[String(level)] = ms;
+  save.unlocked = Math.max(save.unlocked, level + 1);
+  writeSave();
+  return save.best[String(level)] ?? ms;
+}
+
+export function isMuted() {
+  return muted;
+}
+
+export function toggleMuted() {
+  muted = !muted;
+  return muted;
+}
+
+let snap: Snap = {
+  ...initialSnap,
+  level: save.unlocked,
+  unlocked: save.unlocked,
+  bestMs: getBest(save.unlocked),
+};
+const listeners = new Set<() => void>();
+
+export function getSnap() {
+  return snap;
+}
+
+export function subscribe(fn: () => void) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function publish(next: Snap) {
+  snap = next;
+  for (const fn of listeners) fn();
+}
+
+export type Cmd =
+  | { t: "start" }
+  | { t: "again" }
+  | { t: "next" }
+  | { t: "title" }
+  | { t: "mute" }
+  | { t: "pause" }
+  | { t: "level"; n: number };
+
+const queue: Cmd[] = [];
+
+export function send(cmd: Cmd) {
+  queue.push(cmd);
+}
+
+export function drain(): Cmd[] {
+  return queue.splice(0, queue.length);
+}
+
+let held = false;
+let edges = 0;
+
+export function pressFlap() {
+  if (!held) edges += 1;
+  held = true;
+}
+
+export function releaseFlap() {
+  held = false;
+}
+
+export function flapHeld() {
+  return held;
+}
+
+export function takeFlaps() {
+  const n = edges;
+  edges = 0;
+  return n;
+}
+
+let testKeys: Set<string> | null = null;
+
+export function getTestKeys() {
+  return testKeys;
+}
+
+export function setTestKeys(codes: string[]) {
+  testKeys = new Set(codes);
+}
+
+export function formatTime(seconds: number) {
+  const safe = Math.max(0, seconds);
+  const mins = Math.floor(safe / 60);
+  const secs = Math.floor(safe % 60);
+  const hund = Math.floor((safe % 1) * 100);
+  return `${mins}:${secs.toString().padStart(2, "0")}.${hund.toString().padStart(2, "0")}`;
+}
