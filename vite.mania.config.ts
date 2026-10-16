@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  base: "/reveal-run/",
+  base: "/roadstermania/",
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": resolve(__dirname, "src") } },
   build: {

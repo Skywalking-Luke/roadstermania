@@ -26,7 +26,7 @@ function Overlay() {
       <button type="button" className="board-open" onClick={() => setBoard(true)}>
         LEADERBOARD
       </button>
-      {import.meta.env.BASE_URL.includes("mania") ? (
+      {false /* home link disabled */ ? (
         <a className="site-home" href="/">
           LH CARS
         </a>
