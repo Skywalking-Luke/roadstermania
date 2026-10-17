@@ -54,7 +54,8 @@ if ("caches" in window) void caches.keys().then((ks) => ks.forEach((k) => void c
       if (!m || mine.includes(m[0])) return;
       if (sessionStorage.getItem("rm-reloaded") === m[0]) return;
       sessionStorage.setItem("rm-reloaded", m[0]);
-      location.replace(`${location.pathname}?v=${m[0].slice(13, 21)}`);
+      const room = new URLSearchParams(location.search).get("room");
+      location.replace(`${location.pathname}?v=${m[0].slice(13, 21)}${room ? "&room=" + encodeURIComponent(room) : ""}`);
     })
     .catch(() => {});
 })();

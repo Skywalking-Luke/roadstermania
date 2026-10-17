@@ -1,8 +1,9 @@
 import { playBoost, playClear, playCrash, playFlap, playFlip, resumeAudio, setHoldHiss, setMuted, unlockAudio, updateEngine } from "@/game/audio";
 import { createRenderer } from "@/game/draw";
-import { GROUND, PH, VH, VW, setViewWidth } from "@/game/course";
+import { GROUND, PH, PW, VH, VW, setViewWidth } from "@/game/course";
 import { BOOST, begin, boostLevel, createSim, newBoost, previewLevel, scoreTotal, stepSim, type Sim } from "@/game/sim";
 import { loadSprites } from "@/game/sprites";
+import { MP } from "@/game/mp";
 import {
   drain,
   flapHeld,
@@ -160,8 +161,52 @@ export function runGame(canvas: HTMLCanvasElement) {
     releaseFlap();
   };
 
+  // ---- multiplayer (ghost cars; courses are deterministic, so every racer gets the same level) ----
+  let mpBase = 0, mpClearT = 0;
+  const mpStart = () => {
+    newRun(); mpBase = 0; mpClearT = 0; sim.paused = false;
+    begin(sim, 1); renderer.reset(); recorded = false; releaseFlap();
+  };
+  MP.init({
+    id: "roadstermania", title: "ROADSTERMANIA", color: "#ffcc33", target: 3, unit: "LEVEL",
+    start: mpStart,
+    state: () => ({ p: mpBase + sim.player.x, x: sim.player.x, y: sim.player.y, a: sim.player.angle, sc: carried + scoreTotal(sim.score), lv: sim.level, tm: carriedTime + sim.time, v: sim.course.speed }),
+    quit: () => toTitle(),
+  });
+  const mpTick = (dt: number) => {
+    if (!MP.inRace) return;
+    if (sim.phase === "crash") { MP.finish("out"); return; }
+    if (sim.phase === "clear") {
+      if (sim.level >= MP.target) { MP.finish("fin"); return; }
+      mpClearT += dt;
+      if (mpClearT > 1.2) { mpClearT = 0; mpBase += sim.course.finish; next(); }
+    }
+  };
+  const drawGhosts = () => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const cam = sim.player.x - 86;
+    for (const g of MP.ghosts()) {
+      if (g.lv !== sim.level) continue;
+      const dx = Math.round(g.x - cam + PW / 2), dy = Math.round(g.y + PH / 2);
+      if (dx < -20 || dx > VW + 20) {
+        const left = dx < 0, ex = left ? 6 : VW - 6, ey = Math.max(30, Math.min(VH - 30, dy));
+        ctx.fillStyle = g.col;
+        for (let i = 0; i < 4; i++) ctx.fillRect(left ? ex - 3 + i : ex + 3 - i, ey - i, 1, 2 * i + 1);
+        MP.tag(g, left ? ex + 14 : ex - 14, ey - 4);
+        continue;
+      }
+      ctx.save(); ctx.translate(dx, dy); ctx.rotate(g.a); ctx.globalAlpha = g.st === "out" ? 0.3 : 0.6;
+      if (sprites.hero) ctx.drawImage(MP.tint(sprites.hero, g.col, "rm"), -18, PH / 2 - 11, 36, 11);
+      else { ctx.fillStyle = g.col; ctx.fillRect(-18, PH / 2 - 8, 36, 8); }
+      ctx.restore();
+      MP.tag(g, dx, dy - 10);
+    }
+    MP.flushTags(canvas);
+  };
+
   const commands = () => {
     for (const cmd of drain()) {
+      if (MP.active && cmd.t !== "mute") continue; // the multiplayer overlay drives the race
       if (cmd.t === "start" && sim.phase === "title") {
         newRun();
         begin(sim, sim.level);
@@ -196,6 +241,8 @@ export function runGame(canvas: HTMLCanvasElement) {
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (getTestKeys()) return;
+    if (MP.active && !MP.inRace) return;
+    if (MP.inRace && (e.code === "Escape" || e.code === "KeyR")) return;
     if ((e.target as HTMLElement | null)?.closest?.("input")) return;
     if (e.code === "Escape" && sim.phase === "run") {
       e.preventDefault();
@@ -249,6 +296,7 @@ export function runGame(canvas: HTMLCanvasElement) {
       return;
     }
     if (sim.phase === "run" && !sim.paused) pressFlap();
+    else if (MP.active) return;
     else if (sim.phase === "crash" && sim.lock <= 0 && !pending) retry();
     else if (sim.phase === "clear" && sim.lock <= 0) next();
   };
@@ -361,7 +409,9 @@ export function runGame(canvas: HTMLCanvasElement) {
     updateEngine(sim.phase === "run", input.down && !sim.player.stuck);
     setHoldHiss(sim.phase === "run" && !sim.paused && input.down && !sim.player.stuck && sim.player.vy < 0);
 
+    mpTick(dt);
     renderer.draw(ctx, sim, sprites, clock, fx, reduce);
+    drawGhosts();
     publish(toSnap(sim));
     raf = requestAnimationFrame(frame);
   };

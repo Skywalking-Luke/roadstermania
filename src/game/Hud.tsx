@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { MP } from "@/game/mp";
 import { unlockAudio } from "@/game/audio";
 import {
   formatTime,
@@ -118,8 +119,8 @@ function Overlay() {
         </>
       ) : null}
       {snap.paused ? <Paused /> : null}
-      {snap.phase === "crash" ? <Crash /> : null}
-      {snap.phase === "clear" ? <Clear /> : null}
+      {snap.phase === "crash" && !MP.racing ? <Crash /> : null}
+      {snap.phase === "clear" && !MP.racing ? <Clear /> : null}
       {board ? <Board onClose={() => setBoard(false)} /> : null}
     </div>
   );
@@ -160,6 +161,17 @@ function Title() {
         }}
       >
         TAP TO START
+      </button>
+      <button
+        type="button"
+        className="board-open mp-btn"
+        style={{ left: "50%", transform: "translateX(-50%)", background: "var(--color-hot)", color: "#07080c", fontWeight: 700 }}
+        onClick={() => {
+          unlockAudio();
+          MP.open();
+        }}
+      >
+        MULTIPLAYER
       </button>
       <div className="level-row">
         <button
